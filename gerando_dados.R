@@ -14,7 +14,8 @@ ranking <- fread("ranking_fifa.csv") %>%
          country = ifelse(grepl("Korea Republic", country), "South Korea", country))
 
 # CPI index
-load("cpi.Rdata")
+load("dados_corrupcao_2016.Rdata")
+
 
 # importando dados de jogos (verossimilhança)
 last_matches <- fread("last_matches_friendly.csv")
@@ -26,6 +27,15 @@ teams <- fread("teams.csv", sep=",") %>%
 ranking_teams <- ranking %>%
   inner_join(teams, by=c("country" = "teams")) %>%
   arrange(-points)
+
+# filtrando times pro indice da TI
+cpi_data <- dados_corrupcao_2016 %>%
+  mutate(country_or_territory = 
+           ifelse(country_or_territory == "United Kingdom",
+                  "England",country_or_territory )) %>%
+  inner_join(teams, by=c("country_or_territory" = "teams"))
+# England
+
 
 teams <- ranking_teams$country
 
@@ -72,7 +82,7 @@ score2 <- ranking_teams5$score2
 prior_score <- ranking_teams$points
 prior_score <- (prior_score - mean(prior_score))/(2*sd(prior_score))
 
-prior_CPI <- cpi$ranking
+prior_CPI <- as.numeric(cpi_data$ano_2016)
 prior_CPI <- (prior_CPI - mean(prior_CPI))/(2*sd(prior_CPI))
 
 
@@ -81,7 +91,7 @@ df <- 7
 data <- c("nteams","ngames","team1","score1","team2","score2","prior_score","prior_CPI", "df")
 
 
-fit <- stan("worldcup_v1.stan", data=data, chains=4, iter=100)
+fit <- stan("worldcup_v1.stan", data=data, chains=4, iter=5000)
 print(fit)
 
 colVars <- function(a) {n <- dim(a)[[1]]; c <- dim(a)[[2]]; return(.colMeans(((a - matrix(.colMeans(a, n, c), nrow = n, ncol = c, byrow = TRUE)) ^ 2), n, c) * n / (n - 1))}
