@@ -3,36 +3,43 @@ library(dplyr)
 library(stringr)
 library(rstan)
 
+options(mc.cores = parallel::detectCores())
+
+setwd("C:\\Users\\mgaldino\\2018\\Pessoal\\copa_do_mundo")
+
+# importando dados do ranking da FIFa (parta priori)
 ranking <- fread("ranking_fifa.csv") %>%
   mutate(country = str_trim(country),
          country = ifelse(grepl("Iran", country), "Iran", country),
          country = ifelse(grepl("Korea Republic", country), "South Korea", country))
 
+# CPI index
+load("cpi.Rdata")
+
+# importando dados de jogos (verossimilhança)
 last_matches <- fread("last_matches_friendly.csv")
 
-
-setwd("C:\\Users\\mgaldino\\2018\\Pessoal\\copa_do_mundo")
-
+# importando times - seleções
 teams <- fread("teams.csv", sep=",") %>%
   mutate(teams = str_trim(teams))
 
-teste <- ranking %>%
+ranking_teams <- ranking %>%
   inner_join(teams, by=c("country" = "teams")) %>%
   arrange(-points)
 
-teams <- teste$country
+teams <- ranking_teams$country
 
 paises <- data.frame(country=unique(c(last_matches$V1, last_matches$V3)), id=1)
 
 
-teste2 <- teste %>%
+ranking_teams2 <- ranking_teams %>%
   inner_join(last_matches, by=c("country" = "V1")) %>%
   rename(score1 = V2,
          score2 = V4,
          team1 = country,
          team2 = V3)
 
-teste3 <- teste %>%
+ranking_teams3 <- ranking_teams %>%
   inner_join(last_matches, by=c("country" = "V3")) %>%
   rename(score1 = V2,
          score2 = V4,
@@ -40,43 +47,41 @@ teste3 <- teste %>%
          team1 = V1) %>%
   select(c("position", "team1", "points", "score1", "team2", "score2"))
 
-head(teste2)
-head(teste3)
-teste4 <- teste2 %>%
-  bind_rows(teste3) %>%
+
+ranking_teams4 <- ranking_teams2 %>%
+  bind_rows(ranking_teams3) %>%
   mutate(dup = paste(team1, score1, team2, score2, sep="_")) %>%
   filter(!duplicated(dup))
 
-lista_paises <- unique(c(teste4$team1, teste4$team2))
-lista_exclusao <- lista_paises[!lista_paises %in% teste$country]
+lista_paises <- unique(c(ranking_teams4$team1, ranking_teams4$team2))
+lista_exclusao <- lista_paises[!lista_paises %in% ranking_teams$country]
 
-teste5 <- teste4 %>%
+ranking_teams5 <- ranking_teams4 %>%
   filter(!team1 %in% lista_exclusao) %>%
   filter(!team2 %in% lista_exclusao)
 
-sort(teste$country)
-sort(unique(c(teste5$team1, teste5$team2)))
-
-dim(teste5)
-
-ngames <- nrow(teste5)
+ngames <- nrow(ranking_teams5)
 
 nteams <- length(teams)
 
-team1 <- match(teste5$team1, teams)
-score1 <- teste5$score1
-team2 <- match (teste5$team2, teams)
-score2 <- teste5$score2
+team1 <- match(ranking_teams5$team1, teams)
+score1 <- ranking_teams5$score1
+team2 <- match (ranking_teams5$team2, teams)
+score2 <- ranking_teams5$score2
 
-prior_score <- teste$points
+prior_score <- ranking_teams$points
 prior_score <- (prior_score - mean(prior_score))/(2*sd(prior_score))
+
+prior_CPI <- cpi$ranking
+prior_CPI <- (prior_CPI - mean(prior_CPI))/(2*sd(prior_CPI))
+
 
 df <- 7
 
-data <- c("nteams","ngames","team1","score1","team2","score2","prior_score","df")
+data <- c("nteams","ngames","team1","score1","team2","score2","prior_score","prior_CPI", "df")
 
 
-fit <- stan("worldcup.stan", data=data, chains=4, iter=5000)
+fit <- stan("worldcup_v1.stan", data=data, chains=4, iter=100)
 print(fit)
 
 colVars <- function(a) {n <- dim(a)[[1]]; c <- dim(a)[[2]]; return(.colMeans(((a - matrix(.colMeans(a, n, c), nrow = n, ncol = c, byrow = TRUE)) ^ 2), n, c) * n / (n - 1))}
